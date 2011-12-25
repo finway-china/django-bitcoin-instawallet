@@ -1,0 +1,33 @@
+{% load i18n %}
+{% load currency_conversions %}
+<html>
+<head>
+<title>{% trans "Bitcoin Instawallet" %}: {{ instawallet.uuid }}</title>
+</head>
+<body>
+<h1>{% trans "Your instawallet" %}: {{ instawallet.uuid }}</h1>
+
+{% if messages %}
+<ul class="messages">
+    {% for message in messages %}
+    <li{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message }}</li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+<b>{% wallet_tagline instawallet.wallet %}</b><br/>
+
+{% trans "Send bitcoins to following address to receive coins" %}:
+
+{% bitcoin_payment_qr instawallet.wallet.receiving_address %}
+
+<h2>{% trans "Send payments" %}</h2>
+
+<form id="newform" action="{{ instawallet.url }}" method="POST">{% csrf_token %}
+{{ form.as_p }}
+<input type="submit" value="Send!"/>
+</form>
+
+<h2>{% trans "Transaction log" %}</h2>
+
+{% wallet_history instawallet.wallet %}
