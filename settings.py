@@ -148,6 +148,6 @@ LOGGING = {
     }
 }
 
-BITCOIND_CONNECTION_STRING = "http://jeremias:asdfr@kangasbros.fi:8332"
+BITCOIND_CONNECTION_STRING = "http://login:password@localhost:8332"
 BITCOIN_MINIMUM_CONFIRMATIONS = 0
 
