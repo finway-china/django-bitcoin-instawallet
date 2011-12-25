@@ -1,0 +1,222 @@
+<a href="http://www.bitcoin.org">Bitcoin</a> is great and crazy innovation. Ability to transfer electronic money with low transaction might be revolutionary concept. However, bitcoin is a very young and only time will tell if it succeeds or not. In every case, Bitcoin needs huge amount of inrastructure around it to be successful. That is why I have created <a href="https://github.com/kangasbros/django-bitcoin">django-bitcoin</a> library, to make bitcoin-moving applications easier.
+
+From a developer perspective bitcoin is great because bitcoins are so easy to move around. You can automate all aspects of money transfers. In this tutorial I will show you how to create a simple <a href="http://www.instawallet.com">instawallet</a> clone using <a href="http://www.python.org">python language</a>, <a href="http://www.djangoproject.org">django web framework</a> and <a href="https://github.com/kangasbros/django-bitcoin">django-bitcoin</a> library.
+
+Instawallet is a very simple bitcoin application. It allows anyone to set up a simple bitcoin wallet, where you can store bitcoins and move them easily around without installing the bitcoin client. If you are using this kind of service, you are putting a huge trust on the service owner. The benefits of using instawallet is that it makes bitcoin transfers more anonymous, and also makes using bitcoins easier.
+
+Now let's start coding! First we need to setup the app from django. We start a new django application, start a new "wallets" django app, and clone django_bitcoin from github.
+
+Note it is a good practice to use <a href="http://pypi.python.org/pypi/virtualenv">virtualenv</a>.
+
+<code lang="bash">
+pip install django
+django-admin.py startproject instawallet
+cd instawallet
+
+python manage.py startapp wallets
+
+git clone git://github.com/kangasbros/django-bitcoin.git
+cd django-bitcoin
+python setup.py install
+</code>
+
+Next we need to setup some settings for our django project. For this project we are using sqlite.
+
+<code lang="bash">pip install pysqlite
+</code>
+
+We set up the sqlite database as a file "dev.db". After that we add "django_bitcoin" and  "wallets" to INSTALLED_APPS so that django can find our apps. Also we specify a templates directory. Create a folder "templates" inside the project root.
+
+<code lang="python">DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3', # Add 'postgresql_psycopg2', 'postgresql', 'mysql', 'sqlite3' or 'oracle'.
+        'NAME': 'dev.db',                      # Or path to database file if using sqlite3.
+        'USER': '',                      # Not used with sqlite3.
+        'PASSWORD': '',                  # Not used with sqlite3.
+        'HOST': '',                      # Set to empty string for localhost. Not used with sqlite3.
+        'PORT': '',                      # Set to empty string for default. Not used with sqlite3.
+    }
+}
+
+...
+
+INSTALLED_APPS = (
+    ….
+    'django_bitcoin',
+    'wallets',
+)
+
+...
+
+import os
+
+PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
+
+TEMPLATE_DIRS = (
+    os.path.join(PROJECT_ROOT, "templates"),
+)
+</code>
+
+And finally, we need to setup the bitcoin daemon. For this, you must download the official bitcoin client, and edit the bitcoin.conf. Example bitcoin.conf for development purposes:
+
+<code>testnet=1
+server=1
+rpcuser=admin
+rpcpassword=1234
+rpcallowip=*
+</code>
+
+Then you need to configure your bitcoin daemon to django settings.py file. Here we use 0 confirmations for testing purposes.
+
+<code lang="python">BITCOIND_CONNECTION_STRING = "http://login:password@localhost:8332"
+BITCOIN_MINIMUM_CONFIRMATIONS = 0
+</code>
+
+Now everything is set up! Now we start the real coding. We start with models. We will use only one model in this application. That is the online wallet. It will have only two fields, one is the random and unique uuid of the wallet, and second is a foreign key to the django_bitcoin Wallet object, which faciliates the transactions. The following model goes to "wallets/models.py" file.
+
+The url() function returns the url address of the wallet. It is just the wallet uuid.
+
+<code lang="python">class InstaWallet(models.Model):
+    """A wallet model"""
+
+    uuid = models.CharField(blank=True, max_length=50)
+    wallet = models.ForeignKey(Wallet, null=True)
+
+    def __unicode__(self):
+        return u"Wallet "+self.uuid+" "+self.name
+
+    def url(self):
+        return "/wallet/"+self.uuid
+</code>
+
+We need also one form for this app, which resides in the "wallets/forms.py" file. The form is used to send transactions from a specific instawallet.
+
+<code lang="python">class SendForm(forms.Form):
+    address_to = forms.CharField(min_length=3, max_length=40)
+    amount = forms.DecimalField(min_value=Decimal("0.0001"))
+</code>
+
+Now we have the database structure defined in models.py, and we can sync the initial database.
+
+<code lang="bash">python manage.py syncdb
+</code>
+
+Now the logic part of this application. This resides in the "wallets/views.py" file. Before we implement the logic, we have to define the "urls.py" file, which defines what kind of urls we can use.
+
+We define two addresses for this app: the "home" address, which always just generates a new wallet and redirects to it. The other is address for each invidual instawallet.
+
+<code lang="python">
+urlpatterns = patterns('',
+    url(r'^$', 'wallets.views.home', name='home'),
+    url(r'^wallet/(?P<uuid>.*?)$', 'wallets.views.wallet', name='wallet'),
+)
+</code>
+
+Now for the actual views. First the home view. In this view, we generate a new wallet with a random uuid. For a better random, we use system random function os.urandom(), which is better than the pseudorandom function provided by python. We redirect to the wallet address right away.
+
+<code lang="python">
+def home(request):
+    # just generate a new wallet
+    new_wallet=InstaWallet.objects.create(uuid=generateuniquehash(extradata=str(os.urandom(32))),\
+        wallet=Wallet.objects.create())
+
+    return HttpResponseRedirect(new_wallet.url())
+</code>
+
+Now the actual wallet view, which is the core functionality of our instawallet. We get the wallet uuid as a parameter. If the InstaWallet object isn't found with that uuid, we redirect to 404.
+
+If the request is GET, there is nothing to do. Otherwise we have received an transaction request.
+
+With our instawallet, we can generate two types of transactions. If the address provided is between 30-37 characters, we assume that the address is an actual bitcoin address, and we generate a bitcoin transaction. This is done by using the send_to_address() -function of the django_bitcoin "Wallet" object.
+
+Otherwise, we assume that the user tries to send the funds to an another instawallet app. We try to search if there are any InstaWallet objects, whose uuid start with the address provided. Then if a right InstaWallet object is found, we send bitcoins to it with the send_to_wallet() function. No actual bitcoin transaction is generated, and the funds are sent between our web app users.
+
+Why is this useful? This way the users of this web app can send instant transactions between each other, without a need for actual bitcoin transactions.
+
+<code lang="python">
+def wallet(request, uuid):
+    try:
+        instawallet=InstaWallet.objects.get(uuid=uuid)
+    except:
+        return HttpResponseRedirect('/404')
+
+    if request.method == 'POST': # If the form has been submitted...
+        form = SendForm(request.POST) # A form bound to the POST data
+        if form.is_valid(): # All validation rules pass
+            # check if 
+            if len(form.cleaned_data["address_to"])>30 \
+                and len(form.cleaned_data["address_to"])<37:
+                try:
+                    instawallet.wallet.send_to_address(form.cleaned_data["address_to"], form.cleaned_data["amount"])
+                    messages.add_message(request, messages.SUCCESS, \
+                        _(u"Transaction successfully sent to bitcoin address "+form.cleaned_data["address_to"]))
+                except:
+                    messages.add_message(request, messages.ERROR, sys.exc_info()[0])
+            else:
+                otherwallets=InstaWallet.objects.filter(uuid__startswith=form.cleaned_data["address_to"])
+                if len(otherwallets)==1:
+                    instawallet.wallet.send_to_wallet(otherwallets[0].wallet, form.cleaned_data["amount"])
+                    messages.add_message(request, messages.SUCCESS, \
+                        _(u"Transaction successfully sent to another instawallet "+form.cleaned_data["address_to"]))
+                else:
+                    messages.add_message(request, messages.ERROR, _(u"Address not an valid bitcoin address or wallet uuid not found."))
+    else:
+        form = SendForm() # An unbound form
+
+    return render_to_response("instawallet.html", {
+        "instawallet": instawallet,
+        "form": form,
+        }, context_instance=RequestContext(request))
+</code>
+
+Almost done! Now we only need to do the HTML template for the app. This file is "templates/instawallet.html".
+
+We are using several templatetags provided by django_bitcoin templatetag file "currency_conversions". The first is wallet_tagline, which displays the wallet balance, money received and sent, and the balance approximation in USD.
+
+The second is bitcoin_payment_qr, which displays a simple qr code for our bitcoin receiving address. The Wallet.receiving_address() function shows the wallet receiving address, where we can send bitcoins.
+
+The final one is wallet_history tag, which shows all of the transactions of our bitcoin wallet as a table.
+
+<code lang="html">{% load i18n %}
+{% load currency_conversions %}
+<html>
+<head>
+<title>{% trans "Bitcoin Instawallet" %}: {{ instawallet.uuid }}</title>
+</head>
+<body>
+<h1>{% trans "Your instawallet" %}: {{ instawallet.uuid }}</h1>
+
+{% if messages %}
+<ul class="messages">
+    {% for message in messages %}
+    <li{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message }}</li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+<b>{% wallet_tagline instawallet.wallet %}</b><br/>
+
+{% trans "Send bitcoins to following address to receive coins" %}:
+
+{% bitcoin_payment_qr instawallet.wallet.receiving_address %}
+
+<h2>{% trans "Send payments" %}</h2>
+
+<form id="newform" action="{{ instawallet.url }}" method="POST">{% csrf_token %}
+{{ form.as_p }}
+<input type="submit" value="Send!"/>
+</form>
+
+<h2>{% trans "Transaction log" %}</h2>
+
+{% wallet_history instawallet.wallet %}
+</code>
+
+Now all the code is created, and you can run the application and test it at "http://localhost:8000/".
+
+<code lang="bash">python manage.py runserver
+</code>
+
+As you can see, creating an instawallet-style app doesn't require truckloads of code, as most of the functionality is provided by the django_bitcoin library. Feel free to develop the project further.
+
+The code is at https://github.com/kangasbros/django-bitcoin-instawallet
